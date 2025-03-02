@@ -35,6 +35,16 @@ def get_mm_adapter_state_maybe_zero_3(named_params, keys_to_match):
     return to_return
 
 
+# sampler 에서 index 선택 방법을 바꾸고 싶음.
+# 비슷한 length 인 것들을 모으는 방식으로.
+# megabatch 안에 indices 안에 있는 것들은 sorting 이 되어있고, gpu 별로 따로 동작하는 상태
+def split_to_sequence_bucket(indeces, lengths, num_chunks, target_len=None):
+    
+    
+    # return chunks
+    pass
+
+
 def split_to_even_chunks(indices, lengths, num_chunks):
     """
     Split a list of indices into `chunks` chunks of roughly equal lengths.
