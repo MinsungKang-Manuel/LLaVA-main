@@ -28,7 +28,17 @@ import torchvision
 import transformers
 import tokenizers
 
-from llava.constants import IGNORE_INDEX, IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
+from llava.constants import (
+                            IGNORE_INDEX, 
+                             IMAGE_TOKEN_INDEX, 
+                             DEFAULT_IMAGE_TOKEN, 
+                             DEFAULT_IM_START_TOKEN, 
+                             DEFAULT_IM_END_TOKEN,
+                             VIDEO_TOKEN_INDEX, 
+                             DEFAULT_VIDEO_TOKEN, 
+                             DEFAULT_VIDEO_START_TOKEN,
+                             DEFAULT_VIDEO_END_TOKEN,
+                            )
 from torch.utils.data import Dataset
 from llava.train.llava_trainer import LLaVATrainer
 
@@ -310,7 +320,6 @@ def preprocess_multimodal(
     sources: Sequence[str],
     data_args: DataArguments
 ) -> Dict:
-    # TODO: should be changed for video type
     is_multimodal = data_args.is_multimodal
     if not is_multimodal:
         return sources
@@ -327,6 +336,29 @@ def preprocess_multimodal(
             if data_args.mm_use_im_start_end:
                 replace_token = DEFAULT_IM_START_TOKEN + replace_token + DEFAULT_IM_END_TOKEN
             sentence["value"] = sentence["value"].replace(DEFAULT_IMAGE_TOKEN, replace_token)
+
+    return sources
+
+def preprocess_multimodal_video(
+        sources: Sequence[str],
+        data_args: DataArguments
+) -> Dict:
+    is_multimodal = data_args.is_multimodal
+    if not is_multimodal:
+        return sources
+
+    for source in sources:
+        for sentence in source:
+            if DEFAULT_VIDEO_TOKEN in sentence['value']:
+                sentence['value'] = sentence['value'].replace(DEFAULT_VIDEO_TOKEN, '').strip()
+                sentence['value'] = DEFAULT_VIDEO_TOKEN + '\n' + sentence['value']
+                sentence['value'] = sentence['value'].strip()
+                if "mmtag" in conversation_lib.default_conversation.version:
+                    sentence['value'] = sentence['value'].replace(DEFAULT_VIDEO_TOKEN, '<Video>' + DEFAULT_VIDEO_TOKEN + '</Video>')
+            replace_token = DEFAULT_VIDEO_TOKEN
+            if data_args.mm_use_im_start_end:
+                replace_token = DEFAULT_VIDEO_START_TOKEN + replace_token + DEFAULT_VIDEO_END_TOKEN
+            sentence["value"] = sentence["value"].replace(DEFAULT_VIDEO_TOKEN, replace_token)
 
     return sources
 
@@ -612,7 +644,8 @@ def preprocess_plain(
 def preprocess(
     sources: Sequence[str],
     tokenizer: transformers.PreTrainedTokenizer,
-    has_image: bool = False
+    has_image: bool = False,
+    has_video: bool = False,
 ) -> Dict:
     """
     Given a list of sources, each is a conversation list. This transform:
@@ -621,6 +654,7 @@ def preprocess(
     3. Tokenize the concatenated conversation;
     4. Make a deepcopy as the target. Mask human words with IGNORE_INDEX.
     """
+    # Since llama_2, v1, mpt doesn't support video, we do not consider video type in those cases.
     if conversation_lib.default_conversation.sep_style == conversation_lib.SeparatorStyle.PLAIN:
         return preprocess_plain(sources, tokenizer)
     if conversation_lib.default_conversation.sep_style == conversation_lib.SeparatorStyle.LLAMA_2:
@@ -640,7 +674,9 @@ def preprocess(
         return [len(tokenizer_image_token(prompt, tokenizer)) for prompt in prompts]
 
     if has_image:
-        input_ids = [tokenizer_image_token(prompt, tokenizer, return_tensors='pt') for prompt in conversations]
+        input_ids = [tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt') for prompt in conversations]
+    elif has_video:
+        input_ids = [tokenizer_image_token(prompt, tokenizer, VIDEO_TOKEN_INDEX, return_tensors='pt') for prompt in conversations]
     else:
         conversations_tokenized = _tokenize_fn(conversations, tokenizer)
         input_ids = conversations_tokenized["input_ids"]
@@ -728,15 +764,23 @@ class LazySupervisedDataset(Dataset):
             video_folder = self.data_args.video_folder
             processor = self.data_args.video_processor
             video, audio, info = torchvision.io.read_video(os.path.join(video_folder, video_file))
-            video = processor.preprocess(video, return_tensors='pt')['pixel_values'][0]
-
+            # TODO: encoder 에 있는 preprocess 를 사용해야하는데, 현재 video encoder 가 없어서 추후에 처리
+            # video, audio = processor.preprocess(video, audio, return_tensors='pt')['pixel_values'][0]
+            sources = preprocess_multimodal_video(
+                copy.deepcopy([e["conversations"] for e in sources]),
+                self.data_args)
+            # TODO: video length info 를 담아야하는데, text length 는 나중에 처리하는 것 같다. 
+            # special token 으로 나중에 처리를 해줘야할듯
             
         else:
             sources = copy.deepcopy([e["conversations"] for e in sources])
         data_dict = preprocess(
             sources,
             self.tokenizer,
-            has_image=('image' in self.list_data_dict[i]))
+            has_image=('image' in self.list_data_dict[i]),
+            has_video=('video' in self.list_data_dict[i]),
+            )
+
         if isinstance(i, int):
             data_dict = dict(input_ids=data_dict["input_ids"][0],
                              labels=data_dict["labels"][0])
@@ -744,10 +788,14 @@ class LazySupervisedDataset(Dataset):
         # image exist in the data
         if 'image' in self.list_data_dict[i]:
             data_dict['image'] = image
+        elif 'video' in self.list_data_dict[i]:
+            data_dict['video'] = video
+            data_dict['audio'] = audio
         elif self.data_args.is_multimodal:
             # image does not exist in the data, but the model is multimodal
             crop_size = self.data_args.image_processor.crop_size
             data_dict['image'] = torch.zeros(3, crop_size['height'], crop_size['width'])
+            # TODO: video data may not need...
         return data_dict
 
 
