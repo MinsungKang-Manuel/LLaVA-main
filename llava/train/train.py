@@ -23,6 +23,7 @@ import pathlib
 from typing import Dict, Optional, Sequence, List
 
 import torch
+import torchvision
 
 import transformers
 import tokenizers
@@ -309,6 +310,7 @@ def preprocess_multimodal(
     sources: Sequence[str],
     data_args: DataArguments
 ) -> Dict:
+    # TODO: should be changed for video type
     is_multimodal = data_args.is_multimodal
     if not is_multimodal:
         return sources
@@ -654,14 +656,6 @@ def preprocess(
 
     return dict(input_ids=input_ids, labels=targets)
 
-class LazySupervisedVideoDataset(Dataset):
-    """Referenced by DeepSeek-vl, we split the video dataset from image dataset."""
-
-    def __init__(self, data_path: str,
-                 tokenizer: transformers.PreTrainedTokenizer,
-                 data_args: DataArguments):
-        super(LazySupervisedVideoDataset, self).__init__()
-
 
 class LazySupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
@@ -728,6 +722,15 @@ class LazySupervisedDataset(Dataset):
             sources = preprocess_multimodal(
                 copy.deepcopy([e["conversations"] for e in sources]),
                 self.data_args)
+            
+        elif "video" in sources[0]:
+            video_file = self.list_data_dict[i]['video']
+            video_folder = self.data_args.video_folder
+            processor = self.data_args.video_processor
+            video, audio, info = torchvision.io.read_video(os.path.join(video_folder, video_file))
+            video = processor.preprocess(video, return_tensors='pt')['pixel_values'][0]
+
+            
         else:
             sources = copy.deepcopy([e["conversations"] for e in sources])
         data_dict = preprocess(

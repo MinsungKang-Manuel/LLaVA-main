@@ -158,6 +158,20 @@ class Conversation:
                     image = self.process_image(image, image_process_mode, return_pil=return_pil)
                     images.append(image)
         return images
+    
+    # TODO: make conversation for video
+    def process_video(self, video, video_process_mode, return_pil=False):
+        pass
+    
+    def get_videos(self, return_pil=False):
+        videos = []
+        for i, (role, msg) in enumerate(self.messages[self.offset:]):
+            if i % 2 == 0:
+                if type(msg) is tuple:
+                    msg, video, video_process_mode = msg
+                    video = self.process_video(video, video_process_mode, return_pil=return_pil)
+                    videos.append(video)
+        return videos
 
     def to_gradio_chatbot(self):
         ret = []
