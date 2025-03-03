@@ -716,7 +716,8 @@ class LazySupervisedDataset(Dataset):
         length_list = []
         for sample in self.list_data_dict:
             img_tokens = 128 if 'image' in sample else 0
-            length_list.append(sum(len(conv['value'].split()) for conv in sample['conversations']) + img_tokens)
+            video_tokens = 1 if 'video' in sample else 0 # TODO: how to get the video token length?
+            length_list.append(sum(len(conv['value'].split()) for conv in sample['conversations']) + img_tokens + video_tokens)
         return length_list
 
     @property
@@ -769,9 +770,7 @@ class LazySupervisedDataset(Dataset):
             sources = preprocess_multimodal_video(
                 copy.deepcopy([e["conversations"] for e in sources]),
                 self.data_args)
-            # TODO: video length info 를 담아야하는데, text length 는 나중에 처리하는 것 같다. 
-            # special token 으로 나중에 처리를 해줘야할듯
-            
+
         else:
             sources = copy.deepcopy([e["conversations"] for e in sources])
         data_dict = preprocess(
