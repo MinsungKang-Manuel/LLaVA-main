@@ -654,6 +654,14 @@ def preprocess(
 
     return dict(input_ids=input_ids, labels=targets)
 
+class LazySupervisedVideoDataset(Dataset):
+    """Referenced by DeepSeek-vl, we split the video dataset from image dataset."""
+
+    def __init__(self, data_path: str,
+                 tokenizer: transformers.PreTrainedTokenizer,
+                 data_args: DataArguments):
+        super(LazySupervisedVideoDataset, self).__init__()
+
 
 class LazySupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
@@ -662,6 +670,7 @@ class LazySupervisedDataset(Dataset):
                  tokenizer: transformers.PreTrainedTokenizer,
                  data_args: DataArguments):
         super(LazySupervisedDataset, self).__init__()
+        # TODO: get multiple dataset list
         list_data_dict = json.load(open(data_path, "r"))
 
         rank0_print("Formatting inputs...Skip in lazy mode")
