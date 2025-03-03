@@ -1,5 +1,9 @@
 import argparse
 import torch
+import torchvision
+import torchaudio
+import imageio.v3 as iio
+import ffmpeg
 
 from llava.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 from llava.conversation import conv_templates, SeparatorStyle
@@ -22,6 +26,31 @@ def load_image(image_file):
     else:
         image = Image.open(image_file).convert('RGB')
     return image
+
+
+def load_video(video_file):
+    if video_file.startswith('http://') or video_file.startswith('https://'):
+        response = requests.get(video_file)
+        bytesio = BytesIO(response.content)
+        # read video frames
+        video_frames = iio.imread(bytes, format="mp4")  # TODO: support other video formats
+        video_info = iio.iimeta(bytesio, format="mp4")
+        video = torch.from_numpy(video_frames).permute(0, 3, 1, 2)
+        # read audio
+        audio, sample_rate = torchaudio.load(bytesio)
+        # summarize information like torchvision.io.read_video
+        info = {
+            "image_size": video_info["size"],
+            "video_fps": video_info["fps"],
+            "audio_fps": sample_rate,
+            "video_duration": video_info["duration"],
+            "audio_duration": audio.shape[1] / sample_rate
+        }
+
+    else:
+        video, audio, info = torchvision.io.read_video(video_file)
+        info["size"] = video.shape[1:3]
+    return video, audio, info 
 
 
 def main(args):
@@ -55,8 +84,13 @@ def main(args):
     else:
         roles = conv.roles
 
-    image = load_image(args.image_file)
-    image_size = image.size
+    if args.image_file:
+        image = load_image(args.image_file)
+        image_size = image.size
+    elif args.video_file:
+        video, audio, info = load_video(args.video_file)
+        image_size = info["size"]
+
     # Similar operation in model_worker.py
     image_tensor = process_images([image], image_processor, model.config)
     if type(image_tensor) is list:
@@ -92,6 +126,7 @@ def main(args):
         keywords = [stop_str]
         streamer = TextStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
 
+        # TODO: model.generate 은 llava_llama.py & llava_mistral.py 만 사용. video 를 받을 수 없는 모델이라 현재 cli.py 를 바꾼다고 해결이 될것 같지 않음
         with torch.inference_mode():
             output_ids = model.generate(
                 input_ids,
@@ -114,7 +149,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", type=str, default="facebook/opt-350m")
     parser.add_argument("--model-base", type=str, default=None)
-    parser.add_argument("--image-file", type=str, required=True)
+    parser.add_argument("--image-file", type=str, required=False)
+    parser.add_argument("--video-file", type=str, required=False)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--conv-mode", type=str, default=None)
     parser.add_argument("--temperature", type=float, default=0.2)
@@ -123,4 +159,6 @@ if __name__ == "__main__":
     parser.add_argument("--load-4bit", action="store_true")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
+
+    assert args.image_file or args.video_file, "Please provide either an image or a video file"
     main(args)
