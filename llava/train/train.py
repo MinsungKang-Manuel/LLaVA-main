@@ -85,6 +85,7 @@ class DataArguments:
     is_multimodal: bool = False
     image_folder: Optional[str] = field(default=None)
     image_aspect_ratio: str = 'square'
+    video_sampling_rate: int = field(default=4, metadata={"help": "Sampling rate of the video"})
 
 
 @dataclass
@@ -716,8 +717,10 @@ class LazySupervisedDataset(Dataset):
         length_list = []
         for sample in self.list_data_dict:
             img_tokens = 128 if 'image' in sample else 0
-            video_tokens = 1 if 'video' in sample else 0 # TODO: how to get the video token length?
-            length_list.append(sum(len(conv['value'].split()) for conv in sample['conversations']) + img_tokens + video_tokens)
+            video_tokens = 128 * (sample['duration'] // self.data_args.video_sampling_rate) if 'video' in sample else 0
+            # TODO: consider audio tokens for future
+            audio_tokens = 0
+            length_list.append(sum(len(conv['value'].split()) for conv in sample['conversations']) + img_tokens + video_tokens + audio_tokens)
         return length_list
 
     @property
@@ -763,9 +766,9 @@ class LazySupervisedDataset(Dataset):
         elif "video" in sources[0]:
             video_file = self.list_data_dict[i]['video']
             video_folder = self.data_args.video_folder
-            processor = self.data_args.video_processor
             video, audio, info = torchvision.io.read_video(os.path.join(video_folder, video_file))
             # TODO: encoder 에 있는 preprocess 를 사용해야하는데, 현재 video encoder 가 없어서 추후에 처리
+            # processor = self.data_args.video_processor
             # video, audio = processor.preprocess(video, audio, return_tensors='pt')['pixel_values'][0]
             sources = preprocess_multimodal_video(
                 copy.deepcopy([e["conversations"] for e in sources]),
